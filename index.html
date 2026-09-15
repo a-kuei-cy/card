@@ -1,0 +1,880 @@
+```html
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>桌卡 / 席位牌線上產生器</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- html2canvas -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=KaiTi&family=Noto+Sans+TC:wght@300;400;500;700;900&family=Noto+Serif+TC:wght@400;600;700;900&family=Zen+Maru+Gothic:wght@500;700&display=swap" rel="stylesheet">
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Noto Sans TC', 'sans-serif'],
+            serif: ['Noto Serif TC', 'serif'],
+            kai: ['DFKai-SB', 'BiauKai', 'KaiTi', '楷體', 'serif'],
+            rounded: ['Zen Maru Gothic', 'Noto Sans TC', 'sans-serif']
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    /* 螢幕預覽樣式 */
+    .card-preview-container {
+      background-image: radial-gradient(#e5e7eb 1px, transparent 1px);
+      background-size: 16px 16px;
+    }
+
+    .fold-line {
+      background-image: linear-gradient(to right, #9ca3af 50%, rgba(255, 255, 255, 0) 0%);
+      background-position: top;
+      background-size: 12px 1px;
+      background-repeat: repeat-x;
+    }
+
+    .crop-mark {
+      position: absolute;
+      border-color: #6b7280;
+      pointer-events: none;
+    }
+
+    /* 列印專用 CSS */
+    @media print {
+      @page {
+        size: A4 portrait;
+        margin: 0;
+      }
+      body {
+        background: white !important;
+        color: black !important;
+        margin: 0 !important;
+        padding: 0 !important;
+      }
+      .no-print {
+        display: none !important;
+      }
+      .print-only {
+        display: block !important;
+      }
+      .page-break {
+        page-break-after: always;
+        break-after: page;
+      }
+      .print-sheet {
+        width: 210mm !important;
+        height: 297mm !important;
+        box-shadow: none !important;
+        margin: 0 !important;
+        padding: 10mm !important;
+        border: none !important;
+        background: white !important;
+      }
+      .print-sheet-landscape {
+        width: 297mm !important;
+        height: 210mm !important;
+        box-shadow: none !important;
+        margin: 0 !important;
+        padding: 10mm !important;
+        border: none !important;
+        background: white !important;
+      }
+    }
+
+    /* 隱藏列印區域在畫面上的常態顯示，除非在預覽模式下 */
+    .print-only {
+      display: none;
+    }
+  </style>
+</head>
+<body class="bg-slate-100 font-sans min-h-screen flex flex-col text-slate-800">
+
+  <!-- Toast 通知容器 -->
+  <div id="toast-container" class="fixed top-5 right-5 z-50 flex flex-col gap-2 pointer-events-none"></div>
+
+  <!-- 頂部列印區域（僅列印時顯示） -->
+  <div id="print-area" class="print-only"></div>
+
+  <!-- 主要 UI 介面 (列印時隱藏) -->
+  <div class="no-print flex-1 flex flex-col h-screen overflow-hidden">
+    <!-- 頂部導航列 -->
+    <header class="bg-slate-900 text-white px-6 py-3.5 flex items-center justify-between shadow-md border-b border-slate-800">
+      <div class="flex items-center space-x-3">
+        <div class="bg-indigo-600 p-2 rounded-lg text-white">
+          <i data-lucide="id-card" class="w-6 h-6"></i>
+        </div>
+        <div>
+          <h1 class="font-bold text-lg leading-tight tracking-wide">高效桌卡 / 席位牌線上產生器</h1>
+          <p class="text-xs text-slate-400">支援三角立體折卡、批量套印、標準 A4 PDF 輸出</p>
+        </div>
+      </div>
+
+      <!-- 快速操作區 -->
+      <div class="flex items-center gap-2">
+        <button onclick="loadSampleData()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium rounded-lg transition flex items-center gap-1.5 border border-slate-700">
+          <i data-lucide="sparkles" class="w-3.5 h-3.5 text-amber-400"></i>
+          載入範例資料
+        </button>
+        <button onclick="downloadPNG()" class="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium rounded-lg transition flex items-center gap-1.5 shadow-sm">
+          <i data-lucide="image" class="w-3.5 h-3.5"></i>
+          下載圖檔 (PNG)
+        </button>
+        <button onclick="triggerPrint()" class="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg transition flex items-center gap-1.5 shadow-md">
+          <i data-lucide="printer" class="w-4 h-4"></i>
+          列印 / 輸出 PDF
+        </button>
+      </div>
+    </header>
+
+    <!-- 主體雙欄版面 -->
+    <div class="flex-1 flex overflow-hidden">
+      <!-- 左側控制面板 -->
+      <aside class="w-96 bg-white border-r border-slate-200 flex flex-col shadow-sm z-10">
+        <!-- 頁籤切換 -->
+        <div class="flex border-b border-slate-200 bg-slate-50 text-xs font-medium text-slate-600">
+          <button id="tab-btn-data" onclick="switchTab('data')" class="flex-1 py-3 px-2 text-center border-b-2 border-indigo-600 text-indigo-600 font-semibold flex items-center justify-center gap-1.5 transition">
+            <i data-lucide="users" class="w-4 h-4"></i>
+            賓客資料
+          </button>
+          <button id="tab-btn-style" onclick="switchTab('style')" class="flex-1 py-3 px-2 text-center border-b-2 border-transparent hover:text-slate-900 flex items-center justify-center gap-1.5 transition">
+            <i data-lucide="palette" class="w-4 h-4"></i>
+            卡片風格
+          </button>
+          <button id="tab-btn-layout" onclick="switchTab('layout')" class="flex-1 py-3 px-2 text-center border-b-2 border-transparent hover:text-slate-900 flex items-center justify-center gap-1.5 transition">
+            <i data-lucide="layout" class="w-4 h-4"></i>
+            排版列印
+          </button>
+        </div>
+
+        <!-- 頁籤 1: 賓客資料編輯 -->
+        <div id="tab-content-data" class="flex-1 overflow-y-auto p-5 space-y-5">
+          <div>
+            <div class="flex justify-between items-center mb-2">
+              <label class="block text-xs font-bold text-slate-700 uppercase tracking-wider">批量貼上資料 (CSV/文字)</label>
+              <span class="text-[11px] text-slate-400">格式：姓名, 職稱, 單位</span>
+            </div>
+            <textarea id="batch-input" rows="5" oninput="parseBatchInput()" placeholder="張大明, 創辦人兼CEO, 創新科技有限公司&#10;李美玲, 首席設計師, 典雅設計工作室&#10;陳建宏, 教授, 國立大學資訊工程系" class="w-full text-xs p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 font-mono transition bg-slate-50 focus:bg-white"></textarea>
+            <p class="text-[11px] text-slate-500 mt-1">※ 每行一張桌卡，逗號或 Tab 分隔欄位。</p>
+          </div>
+
+          <!-- 單張資料調整選單 -->
+          <div>
+            <div class="flex justify-between items-center mb-2">
+              <label class="block text-xs font-bold text-slate-700 uppercase tracking-wider">目前清單 (<span id="card-count">0</span> 張)</label>
+              <button onclick="clearAllData()" class="text-xs text-rose-600 hover:text-rose-700 font-medium transition">清空資料</button>
+            </div>
+
+            <div id="cards-list" class="space-y-2 max-h-60 overflow-y-auto pr-1">
+              <!-- 動態生成賓客卡片清單 -->
+            </div>
+          </div>
+        </div>
+
+        <!-- 頁籤 2: 卡片視覺風格 -->
+        <div id="tab-content-style" class="flex-1 overflow-y-auto p-5 space-y-5 hidden">
+          <!-- 卡片類型 -->
+          <div>
+            <label class="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">桌卡類型</label>
+            <div class="grid grid-cols-2 gap-2">
+              <button onclick="setStyle('cardType', 'tent')" id="btn-type-tent" class="p-2.5 border-2 rounded-lg text-xs font-medium flex flex-col items-center gap-1 transition border-indigo-600 bg-indigo-50 text-indigo-700">
+                <i data-lucide="triangle" class="w-4 h-4"></i>
+                三角對折卡 (雙面)
+              </button>
+              <button onclick="setStyle('cardType', 'flat')" id="btn-type-flat" class="p-2.5 border-2 border-slate-200 rounded-lg text-xs font-medium flex flex-col items-center gap-1 transition hover:border-slate-300 text-slate-700">
+                <i data-lucide="square" class="w-4 h-4"></i>
+                平面席位卡 (單面)
+              </button>
+            </div>
+          </div>
+
+          <!-- 風格主題預設 -->
+          <div>
+            <label class="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">預設視覺主題</label>
+            <div class="grid grid-cols-3 gap-2">
+              <button onclick="applyTheme('corporate')" class="p-2 border border-slate-200 rounded-md text-xs hover:border-indigo-500 flex flex-col items-center gap-1 bg-slate-50">
+                <span class="w-4 h-4 rounded-full bg-slate-900 border"></span>
+                商務深藍
+              </button>
+              <button onclick="applyTheme('gold')" class="p-2 border border-slate-200 rounded-md text-xs hover:border-indigo-500 flex flex-col items-center gap-1 bg-amber-50">
+                <span class="w-4 h-4 rounded-full bg-amber-600 border"></span>
+                高雅金緻
+              </button>
+              <button onclick="applyTheme('minimal')" class="p-2 border border-slate-200 rounded-md text-xs hover:border-indigo-500 flex flex-col items-center gap-1 bg-white">
+                <span class="w-4 h-4 rounded-full bg-slate-300 border"></span>
+                極簡現代
+              </button>
+              <button onclick="applyTheme('wedding')" class="p-2 border border-slate-200 rounded-md text-xs hover:border-indigo-500 flex flex-col items-center gap-1 bg-rose-50">
+                <span class="w-4 h-4 rounded-full bg-rose-400 border"></span>
+                婚禮粉漾
+              </button>
+              <button onclick="applyTheme('academic')" class="p-2 border border-slate-200 rounded-md text-xs hover:border-indigo-500 flex flex-col items-center gap-1 bg-emerald-50">
+                <span class="w-4 h-4 rounded-full bg-emerald-700 border"></span>
+                學術青綠
+              </button>
+              <button onclick="applyTheme('dark')" class="p-2 border border-slate-200 rounded-md text-xs hover:border-indigo-500 flex flex-col items-center gap-1 bg-slate-800 text-white">
+                <span class="w-4 h-4 rounded-full bg-amber-400 border"></span>
+                尊榮奢黑
+              </button>
+            </div>
+          </div>
+
+          <!-- 字型與字體大小 -->
+          <div class="space-y-3 border-t border-slate-200 pt-4">
+            <div>
+              <label class="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">字型選擇</label>
+              <select id="font-select" onchange="setStyle('font', this.value)" class="w-full text-xs p-2 border border-slate-300 rounded-md bg-white focus:ring-2 focus:ring-indigo-500">
+                <option value="font-sans">Noto Sans 黑體 (清晰現代)</option>
+                <option value="font-serif">Noto Serif 明體 (莊重正式)</option>
+                <option value="font-kai">標楷體 / 楷體 (古典美觀)</option>
+                <option value="font-rounded">Zen Maru 圓體 (溫柔親和)</option>
+              </select>
+            </div>
+
+            <div>
+              <div class="flex justify-between items-center mb-1">
+                <label class="text-xs font-bold text-slate-700 uppercase tracking-wider">姓名整體縮放</label>
+                <span id="font-scale-value" class="text-xs text-slate-500 font-mono">1.0x</span>
+              </div>
+              <input type="range" id="font-scale" min="0.6" max="1.8" step="0.05" value="1.0" oninput="setStyle('fontScale', parseFloat(this.value)); document.getElementById('font-scale-value').innerText = this.value + 'x';" class="w-full">
+            </div>
+          </div>
+
+          <!-- 顏色設定 -->
+          <div class="space-y-3 border-t border-slate-200 pt-4">
+            <label class="block text-xs font-bold text-slate-700 uppercase tracking-wider">色彩配置</label>
+
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <span class="text-[11px] text-slate-500 block mb-1">背景顏色</span>
+                <div class="flex items-center gap-2">
+                  <input type="color" id="bg-color-picker" onchange="setStyle('bgColor', this.value)" class="w-8 h-8 rounded border border-slate-300 cursor-pointer p-0.5">
+                  <input type="text" id="bg-color-text" onchange="setStyle('bgColor', this.value)" class="w-full text-xs p-1.5 border border-slate-300 rounded font-mono uppercase">
+                </div>
+              </div>
+
+              <div>
+                <span class="text-[11px] text-slate-500 block mb-1">文字主要顏色</span>
+                <div class="flex items-center gap-2">
+                  <input type="color" id="text-color-picker" onchange="setStyle('textColor', this.value)" class="w-8 h-8 rounded border border-slate-300 cursor-pointer p-0.5">
+                  <input type="text" id="text-color-text" onchange="setStyle('textColor', this.value)" class="w-full text-xs p-1.5 border border-slate-300 rounded font-mono uppercase">
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <span class="text-[11px] text-slate-500 block mb-1">裝飾邊框 / 飾線顏色</span>
+              <div class="flex items-center gap-2">
+                <input type="color" id="accent-color-picker" onchange="setStyle('accentColor', this.value)" class="w-8 h-8 rounded border border-slate-300 cursor-pointer p-0.5">
+                <input type="text" id="accent-color-text" onchange="setStyle('accentColor', this.value)" class="w-full text-xs p-1.5 border border-slate-300 rounded font-mono uppercase">
+              </div>
+            </div>
+          </div>
+
+          <!-- 標誌 / Logo 圖示 -->
+          <div class="border-t border-slate-200 pt-4">
+            <label class="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">頂部標誌 / Logo</label>
+            <div class="grid grid-cols-4 gap-2 mb-2">
+              <button onclick="setStyle('logoIcon', 'none')" class="p-2 border rounded text-xs flex justify-center items-center hover:bg-slate-50" title="無圖示">無</button>
+              <button onclick="setStyle('logoIcon', 'building-2')" class="p-2 border rounded text-xs flex justify-center items-center hover:bg-slate-50" title="公司/企業"><i data-lucide="building-2" class="w-4 h-4"></i></button>
+              <button onclick="setStyle('logoIcon', 'graduation-cap')" class="p-2 border rounded text-xs flex justify-center items-center hover:bg-slate-50" title="學術/學校"><i data-lucide="graduation-cap" class="w-4 h-4"></i></button>
+              <button onclick="setStyle('logoIcon', 'award')" class="p-2 border rounded text-xs flex justify-center items-center hover:bg-slate-50" title="榮譽/徽章"><i data-lucide="award" class="w-4 h-4"></i></button>
+            </div>
+            <div class="mt-2">
+              <span class="text-[11px] text-slate-500 block mb-1">上傳自訂 Logo 圖片</span>
+              <input type="file" accept="image/*" onchange="handleLogoUpload(event)" class="text-xs text-slate-500 file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100">
+            </div>
+          </div>
+        </div>
+
+        <!-- 頁籤 3: 排版與列印設定 -->
+        <div id="tab-content-layout" class="flex-1 overflow-y-auto p-5 space-y-5 hidden">
+          <!-- A4 排版方式 -->
+          <div>
+            <label class="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">每頁 A4 拼版數量</label>
+            <div class="grid grid-cols-3 gap-2">
+              <button onclick="setStyle('cardsPerPage', 1)" id="btn-cpp-1" class="p-2.5 border-2 rounded-lg text-xs font-medium flex flex-col items-center gap-1 transition border-indigo-600 bg-indigo-50 text-indigo-700">
+                <i data-lucide="file-text" class="w-4 h-4"></i>
+                1 張 / 頁 (大)
+              </button>
+              <button onclick="setStyle('cardsPerPage', 2)" id="btn-cpp-2" class="p-2.5 border-2 border-slate-200 rounded-lg text-xs font-medium flex flex-col items-center gap-1 transition hover:border-slate-300 text-slate-700">
+                <i data-lucide="copy" class="w-4 h-4"></i>
+                2 張 / 頁 (標準)
+              </button>
+              <button onclick="setStyle('cardsPerPage', 4)" id="btn-cpp-4" class="p-2.5 border-2 border-slate-200 rounded-lg text-xs font-medium flex flex-col items-center gap-1 transition hover:border-slate-300 text-slate-700">
+                <i data-lucide="grid-2x2" class="w-4 h-4"></i>
+                4 張 / 頁 (小型)
+              </button>
+            </div>
+          </div>
+
+          <!-- 紙張方向 -->
+          <div>
+            <label class="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">列印紙張方向</label>
+            <div class="grid grid-cols-2 gap-2">
+              <button onclick="setStyle('orientation', 'portrait')" id="btn-orient-portrait" class="p-2.5 border-2 rounded-lg text-xs font-medium flex flex-col items-center gap-1 transition border-indigo-600 bg-indigo-50 text-indigo-700">
+                <i data-lucide="smartphone" class="w-4 h-4"></i>
+                A4 直向
+              </button>
+              <button onclick="setStyle('orientation', 'landscape')" id="btn-orient-landscape" class="p-2.5 border-2 border-slate-200 rounded-lg text-xs font-medium flex flex-col items-center gap-1 transition hover:border-slate-300 text-slate-700">
+                <i data-lucide="monitor" class="w-4 h-4"></i>
+                A4 橫向
+              </button>
+            </div>
+          </div>
+
+          <!-- 輔助線與旋轉設定 -->
+          <div class="space-y-3 border-t border-slate-200 pt-4">
+            <label class="block text-xs font-bold text-slate-700 uppercase tracking-wider">列印輔助標記</label>
+
+            <label class="flex items-center justify-between cursor-pointer">
+              <span class="text-xs text-slate-700">顯示對折虛線 (Fold Line)</span>
+              <input type="checkbox" id="chk-foldlines" checked onchange="setStyle('showFoldLines', this.checked)" class="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500">
+            </label>
+
+            <label class="flex items-center justify-between cursor-pointer">
+              <span class="text-xs text-slate-700">顯示裁切角線 (Crop Marks)</span>
+              <input type="checkbox" id="chk-cropmarks" checked onchange="setStyle('showCropMarks', this.checked)" class="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500">
+            </label>
+
+            <label id="option-reverse-top" class="flex items-center justify-between cursor-pointer">
+              <div>
+                <span class="text-xs text-slate-700 block">頂面文字自動旋轉 180°</span>
+                <span class="text-[10px] text-slate-400">折起後前後兩面皆可正常閱讀</span>
+              </div>
+              <input type="checkbox" id="chk-reverse" checked onchange="setStyle('foldReverse', this.checked)" class="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500">
+            </label>
+          </div>
+        </div>
+      </aside>
+
+      <!-- 右側畫布預覽區 -->
+      <main class="flex-1 bg-slate-200 flex flex-col overflow-hidden relative">
+        <!-- 預覽上方控制列 -->
+        <div class="bg-white/80 backdrop-blur border-b border-slate-200 px-6 py-2.5 flex items-center justify-between z-10">
+          <div class="flex items-center gap-2">
+            <span class="text-xs font-bold text-slate-600 uppercase tracking-wider">即時實體預覽</span>
+            <span id="preview-page-indicator" class="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full font-mono">1 / 1 頁</span>
+          </div>
+
+          <!-- 頁碼切換 -->
+          <div class="flex items-center gap-2">
+            <button onclick="changePreviewPage(-1)" class="p-1 hover:bg-slate-100 rounded text-slate-600 transition disabled:opacity-30">
+              <i data-lucide="chevron-left" class="w-4 h-4"></i>
+            </button>
+            <span id="preview-page-text" class="text-xs font-medium text-slate-700 min-w-[60px] text-center">第 1 頁</span>
+            <button onclick="changePreviewPage(1)" class="p-1 hover:bg-slate-100 rounded text-slate-600 transition disabled:opacity-30">
+              <i data-lucide="chevron-right" class="w-4 h-4"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- 畫布滾動區域 -->
+        <div class="flex-1 overflow-auto p-8 flex justify-center items-start card-preview-container">
+          <!-- A4 模擬紙張容器 -->
+          <div id="paper-container" class="bg-white shadow-xl transition-all duration-300 relative border border-slate-200 flex flex-col justify-between p-6">
+            <!-- 動態渲染卡片放置區 -->
+            <div id="cards-preview-grid" class="w-full h-full grid gap-4"></div>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <script>
+    // 預設資料
+    let cardsData = [
+      { name: "張大明", title: "創辦人兼 CEO", org: "創新科技有限公司" },
+      { name: "李美玲", title: "首席設計師", org: "典雅設計工作室" },
+      { name: "陳建宏", title: "教授 / 博士", org: "國立大學資訊工程系" },
+      { name: "林雅婷", title: "行銷總監", org: "全球品牌行銷集團" }
+    ];
+
+    // 風格樣式狀態
+    let styleConfig = {
+      cardType: 'tent',        // tent (三角折卡) | flat (平面卡)
+      cardsPerPage: 2,         // 1, 2, 4
+      orientation: 'portrait',  // portrait | landscape
+      theme: 'corporate',
+      font: 'font-sans',
+      fontScale: 1.0,
+      bgColor: '#FFFFFF',
+      textColor: '#0F172A',
+      accentColor: '#1E3A8A',
+      showFoldLines: true,
+      showCropMarks: true,
+      foldReverse: true,
+      logoIcon: 'building-2',
+      customLogoUrl: null
+    };
+
+    let currentPreviewPage = 1;
+
+    // 初始化載入
+    window.addEventListener('DOMContentLoaded', () => {
+      lucide.createIcons();
+      syncFormState();
+      updateBatchTextFromData();
+      renderAll();
+    });
+
+    // 頁籤切換
+    function switchTab(tabName) {
+      ['data', 'style', 'layout'].forEach(t => {
+        const btn = document.getElementById(`tab-btn-${t}`);
+        const content = document.getElementById(`tab-content-${t}`);
+        if (t === tabName) {
+          btn.className = "flex-1 py-3 px-2 text-center border-b-2 border-indigo-600 text-indigo-600 font-semibold flex items-center justify-center gap-1.5 transition";
+          content.classList.remove('hidden');
+        } else {
+          btn.className = "flex-1 py-3 px-2 text-center border-b-2 border-transparent hover:text-slate-900 flex items-center justify-center gap-1.5 transition";
+          content.classList.add('hidden');
+        }
+      });
+    }
+
+    // 批量文字解析
+    function parseBatchInput() {
+      const rawText = document.getElementById('batch-input').value;
+      const lines = rawText.split('\n').filter(line => line.trim() !== '');
+      
+      cardsData = lines.map(line => {
+        const parts = line.split(/[,,\t]/).map(p => p.trim());
+        return {
+          name: parts[0] || '姓名',
+          title: parts[1] || '',
+          org: parts[2] || ''
+        };
+      });
+
+      currentPreviewPage = 1;
+      renderCardsList();
+      renderAll();
+    }
+
+    function updateBatchTextFromData() {
+      const text = cardsData.map(c => {
+        let items = [c.name];
+        if (c.title) items.push(c.title);
+        if (c.org) items.push(c.org);
+        return items.join(', ');
+      }).join('\n');
+      document.getElementById('batch-input').value = text;
+      renderCardsList();
+    }
+
+    function renderCardsList() {
+      const listEl = document.getElementById('cards-list');
+      document.getElementById('card-count').innerText = cardsData.length;
+
+      if (cardsData.length === 0) {
+        listEl.innerHTML = `<div class="text-xs text-slate-400 text-center py-4">目前尚無賓客資料</div>`;
+        return;
+      }
+
+      listEl.innerHTML = cardsData.map((item, idx) => `
+        <div class="p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs flex items-center justify-between group hover:border-slate-300">
+          <div class="flex-1 truncate pr-2">
+            <span class="font-bold text-slate-800">${escapeHtml(item.name)}</span>
+            ${item.title ? `<span class="text-slate-500 ml-1.5">(${escapeHtml(item.title)})</span>` : ''}
+            ${item.org ? `<div class="text-[11px] text-slate-400 truncate">${escapeHtml(item.org)}</div>` : ''}
+          </div>
+          <button onclick="removeCard(${idx})" class="p-1 text-slate-400 hover:text-rose-600 rounded transition opacity-0 group-hover:opacity-100">
+            <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+          </button>
+        </div>
+      `).join('');
+
+      lucide.createIcons();
+    }
+
+    function removeCard(idx) {
+      cardsData.splice(idx, 1);
+      updateBatchTextFromData();
+      renderAll();
+    }
+
+    function clearAllData() {
+      cardsData = [];
+      updateBatchTextFromData();
+      renderAll();
+    }
+
+    function loadSampleData() {
+      cardsData = [
+        { name: "張大明", title: "創辦人兼 CEO", org: "創新科技有限公司" },
+        { name: "李美玲", title: "首席設計師", org: "典雅設計工作室" },
+        { name: "陳建宏", title: "教授 / 博士", org: "國立大學資訊工程系" },
+        { name: "林雅婷", title: "行銷總監", org: "全球品牌行銷集團" },
+        { name: "黃志偉", title: "技術長", org: "前瞻人工智慧實驗室" },
+        { name: "趙雪芬", title: "營運總監", org: "國際商務會展中心" }
+      ];
+      updateBatchTextFromData();
+      renderAll();
+      showToast('已成功載入範例賓客資料！');
+    }
+
+    // 設定與控制邏輯
+    function setStyle(key, value) {
+      styleConfig[key] = value;
+      syncFormState();
+      renderAll();
+    }
+
+    function syncFormState() {
+      // 顏色
+      document.getElementById('bg-color-picker').value = styleConfig.bgColor;
+      document.getElementById('bg-color-text').value = styleConfig.bgColor;
+      document.getElementById('text-color-picker').value = styleConfig.textColor;
+      document.getElementById('text-color-text').value = styleConfig.textColor;
+      document.getElementById('accent-color-picker').value = styleConfig.accentColor;
+      document.getElementById('accent-color-text').value = styleConfig.accentColor;
+
+      // 按鈕狀態: 三角 vs 平面
+      document.getElementById('btn-type-tent').className = styleConfig.cardType === 'tent' 
+        ? "p-2.5 border-2 rounded-lg text-xs font-medium flex flex-col items-center gap-1 transition border-indigo-600 bg-indigo-50 text-indigo-700"
+        : "p-2.5 border-2 border-slate-200 rounded-lg text-xs font-medium flex flex-col items-center gap-1 transition hover:border-slate-300 text-slate-700";
+
+      document.getElementById('btn-type-flat').className = styleConfig.cardType === 'flat' 
+        ? "p-2.5 border-2 rounded-lg text-xs font-medium flex flex-col items-center gap-1 transition border-indigo-600 bg-indigo-50 text-indigo-700"
+        : "p-2.5 border-2 border-slate-200 rounded-lg text-xs font-medium flex flex-col items-center gap-1 transition hover:border-slate-300 text-slate-700";
+
+      // 旋轉反轉選單顯示與否
+      document.getElementById('option-reverse-top').style.display = styleConfig.cardType === 'tent' ? 'flex' : 'none';
+
+      // 每頁張數
+      [1, 2, 4].forEach(n => {
+        const btn = document.getElementById(`btn-cpp-${n}`);
+        btn.className = styleConfig.cardsPerPage === n
+          ? "p-2.5 border-2 rounded-lg text-xs font-medium flex flex-col items-center gap-1 transition border-indigo-600 bg-indigo-50 text-indigo-700"
+          : "p-2.5 border-2 border-slate-200 rounded-lg text-xs font-medium flex flex-col items-center gap-1 transition hover:border-slate-300 text-slate-700";
+      });
+
+      // 紙張方向
+      ['portrait', 'landscape'].forEach(o => {
+        const btn = document.getElementById(`btn-orient-${o}`);
+        btn.className = styleConfig.orientation === o
+          ? "p-2.5 border-2 rounded-lg text-xs font-medium flex flex-col items-center gap-1 transition border-indigo-600 bg-indigo-50 text-indigo-700"
+          : "p-2.5 border-2 border-slate-200 rounded-lg text-xs font-medium flex flex-col items-center gap-1 transition hover:border-slate-300 text-slate-700";
+      });
+
+      // 核取方塊
+      document.getElementById('chk-foldlines').checked = styleConfig.showFoldLines;
+      document.getElementById('chk-cropmarks').checked = styleConfig.showCropMarks;
+      document.getElementById('chk-reverse').checked = styleConfig.foldReverse;
+      document.getElementById('font-select').value = styleConfig.font;
+    }
+
+    // 風格主題套用
+    function applyTheme(themeName) {
+      styleConfig.theme = themeName;
+      switch (themeName) {
+        case 'corporate':
+          styleConfig.bgColor = '#FFFFFF';
+          styleConfig.textColor = '#0F172A';
+          styleConfig.accentColor = '#1E3A8A';
+          styleConfig.font = 'font-sans';
+          break;
+        case 'gold':
+          styleConfig.bgColor = '#FFFCF5';
+          styleConfig.textColor = '#451A03';
+          styleConfig.accentColor = '#D97706';
+          styleConfig.font = 'font-serif';
+          break;
+        case 'minimal':
+          styleConfig.bgColor = '#FFFFFF';
+          styleConfig.textColor = '#18181B';
+          styleConfig.accentColor = '#71717A';
+          styleConfig.font = 'font-sans';
+          break;
+        case 'wedding':
+          styleConfig.bgColor = '#FFF1F2';
+          styleConfig.textColor = '#881337';
+          styleConfig.accentColor = '#FB7185';
+          styleConfig.font = 'font-serif';
+          break;
+        case 'academic':
+          styleConfig.bgColor = '#F0FDF4';
+          styleConfig.textColor = '#064E3B';
+          styleConfig.accentColor = '#059669';
+          styleConfig.font = 'font-serif';
+          break;
+        case 'dark':
+          styleConfig.bgColor = '#0F172A';
+          styleConfig.textColor = '#F8FAFC';
+          styleConfig.accentColor = '#F59E0B';
+          styleConfig.font = 'font-sans';
+          break;
+      }
+      syncFormState();
+      renderAll();
+    }
+
+    // 自訂 Logo 上傳處理
+    function handleLogoUpload(e) {
+      const file = e.target.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = function(event) {
+          styleConfig.customLogoUrl = event.target.result;
+          styleConfig.logoIcon = 'custom';
+          renderAll();
+        };
+        reader.readAsDataURL(file);
+      }
+    }
+
+    // 渲染卡片核心邏輯
+    function renderAll() {
+      renderPreviewPaper();
+    }
+
+    // 計算總頁數與當前頁資料
+    function getPagesData() {
+      const cpp = styleConfig.cardsPerPage;
+      const pages = [];
+      for (let i = 0; i < cardsData.length; i += cpp) {
+        pages.push(cardsData.slice(i, i + cpp));
+      }
+      if (pages.length === 0) pages.push([]);
+      return pages;
+    }
+
+    function changePreviewPage(delta) {
+      const pages = getPagesData();
+      currentPreviewPage = Math.max(1, Math.min(pages.length, currentPreviewPage + delta));
+      renderPreviewPaper();
+    }
+
+    function renderPreviewPaper() {
+      const container = document.getElementById('paper-container');
+      const grid = document.getElementById('cards-preview-grid');
+      const pages = getPagesData();
+
+      if (currentPreviewPage > pages.length) currentPreviewPage = pages.length;
+
+      // 更新分頁控制標籤
+      document.getElementById('preview-page-indicator').innerText = `${currentPreviewPage} / ${pages.length} 頁`;
+      document.getElementById('preview-page-text').innerText = `第 ${currentPreviewPage} 頁`;
+
+      // 設置模擬 A4 尺寸
+      const isLandscape = styleConfig.orientation === 'landscape';
+      if (isLandscape) {
+        container.style.width = '842px';
+        container.style.height = '595px';
+      } else {
+        container.style.width = '595px';
+        container.style.height = '842px';
+      }
+
+      // 網格佈局
+      const cpp = styleConfig.cardsPerPage;
+      if (cpp === 1) {
+        grid.className = "w-full h-full grid grid-cols-1 grid-rows-1 gap-2";
+      } else if (cpp === 2) {
+        grid.className = isLandscape 
+          ? "w-full h-full grid grid-cols-2 grid-rows-1 gap-4" 
+          : "w-full h-full grid grid-cols-1 grid-rows-2 gap-4";
+      } else if (cpp === 4) {
+        grid.className = "w-full h-full grid grid-cols-2 grid-rows-2 gap-3";
+      }
+
+      const currentPageCards = pages[currentPreviewPage - 1] || [];
+
+      // 生成卡片內容
+      grid.innerHTML = currentPageCards.map(card => generateCardHTML(card)).join('');
+      lucide.createIcons();
+    }
+
+    // 生成單張桌卡的 HTML 結構
+    function generateCardHTML(card) {
+      const isTent = styleConfig.cardType === 'tent';
+      const logoHtml = getLogoHTML();
+      const fontClass = styleConfig.font;
+
+      if (isTent) {
+        // 三角對折卡 (包含頂面與底面)
+        return `
+          <div class="relative w-full h-full border border-slate-300 flex flex-col justify-between overflow-hidden shadow-sm" style="background-color: ${styleConfig.bgColor};">
+            
+            ${styleConfig.showCropMarks ? getCropMarksHTML() : ''}
+
+            <!-- 頂面 (反轉 180 度，對折後顯示於背面) -->
+            <div class="flex-1 p-4 flex flex-col items-center justify-center text-center relative border-b border-slate-200 transition-transform ${styleConfig.foldReverse ? 'rotate-180' : ''}" style="color: ${styleConfig.textColor};">
+              <div class="mb-1 opacity-80">${logoHtml}</div>
+              ${card.org ? `<div class="text-[11px] font-medium tracking-wide opacity-75 mb-1">${escapeHtml(card.org)}</div>` : ''}
+              <div class="font-bold ${fontClass} tracking-wider leading-tight" style="font-size: ${22 * styleConfig.fontScale}px;">${escapeHtml(card.name)}</div>
+              ${card.title ? `<div class="text-xs font-medium mt-1 opacity-80">${escapeHtml(card.title)}</div>` : ''}
+              
+              <!-- 頂部裝飾線 -->
+              <div class="w-12 h-0.5 mt-2 rounded-full" style="background-color: ${styleConfig.accentColor};"></div>
+            </div>
+
+            <!-- 中間對折虛線 -->
+            ${styleConfig.showFoldLines ? `
+              <div class="w-full fold-line flex items-center justify-center py-0.5 bg-slate-100/50 z-10">
+                <span class="text-[9px] text-slate-400 px-2 font-mono">✂ 對折線 Fold Line</span>
+              </div>
+            ` : '<div class="w-full h-px bg-slate-200"></div>'}
+
+            <!-- 正面 (正面閱讀) -->
+            <div class="flex-1 p-4 flex flex-col items-center justify-center text-center relative" style="color: ${styleConfig.textColor};">
+              <div class="w-12 h-0.5 mb-2 rounded-full" style="background-color: ${styleConfig.accentColor};"></div>
+              <div class="mb-1 opacity-80">${logoHtml}</div>
+              ${card.org ? `<div class="text-[11px] font-medium tracking-wide opacity-75 mb-1">${escapeHtml(card.org)}</div>` : ''}
+              <div class="font-bold ${fontClass} tracking-wider leading-tight" style="font-size: ${24 * styleConfig.fontScale}px;">${escapeHtml(card.name)}</div>
+              ${card.title ? `<div class="text-xs font-medium mt-1 opacity-80">${escapeHtml(card.title)}</div>` : ''}
+            </div>
+
+          </div>
+        `;
+      } else {
+        // 平面席位卡
+        return `
+          <div class="relative w-full h-full border border-slate-300 p-6 flex flex-col justify-between items-center text-center overflow-hidden shadow-sm" style="background-color: ${styleConfig.bgColor}; color: ${styleConfig.textColor};">
+            
+            ${styleConfig.showCropMarks ? getCropMarksHTML() : ''}
+
+            <!-- 裝飾頂欄 -->
+            <div class="w-full flex justify-between items-center border-b pb-2" style="border-color: ${styleConfig.accentColor}33;">
+              <div class="text-xs font-semibold tracking-wider opacity-70">${escapeHtml(card.org || '')}</div>
+              <div class="opacity-80">${logoHtml}</div>
+            </div>
+
+            <!-- 中間主要姓名與職稱 -->
+            <div class="my-auto py-2">
+              <div class="font-bold ${fontClass} tracking-wider leading-tight mb-2" style="font-size: ${28 * styleConfig.fontScale}px;">${escapeHtml(card.name)}</div>
+              ${card.title ? `<div class="text-sm font-medium opacity-80">${escapeHtml(card.title)}</div>` : ''}
+            </div>
+
+            <!-- 裝飾底線 -->
+            <div class="w-full h-1 rounded-full" style="background-color: ${styleConfig.accentColor};"></div>
+          </div>
+        `;
+      }
+    }
+
+    // Logo HTML 生成
+    function getLogoHTML() {
+      if (styleConfig.logoIcon === 'custom' && styleConfig.customLogoUrl) {
+        return `<img src="${styleConfig.customLogoUrl}" class="h-6 w-auto object-contain inline-block" alt="Logo">`;
+      } else if (styleConfig.logoIcon && styleConfig.logoIcon !== 'none') {
+        return `<i data-lucide="${styleConfig.logoIcon}" class="w-5 h-5 inline-block" style="color: ${styleConfig.accentColor};"></i>`;
+      }
+      return '';
+    }
+
+    // 裁切線 HTML
+    function getCropMarksHTML() {
+      return `
+        <div class="crop-mark top-0 left-0 w-2 h-2 border-t-2 border-l-2"></div>
+        <div class="crop-mark top-0 right-0 w-2 h-2 border-t-2 border-r-2"></div>
+        <div class="crop-mark bottom-0 left-0 w-2 h-2 border-b-2 border-l-2"></div>
+        <div class="crop-mark bottom-0 right-0 w-2 h-2 border-b-2 border-r-2"></div>
+      `;
+    }
+
+    // 列印觸發邏輯
+    function triggerPrint() {
+      if (cardsData.length === 0) {
+        showToast('請先新增賓客資料後再進行列印！', 'error');
+        return;
+      }
+
+      const printArea = document.getElementById('print-area');
+      const pages = getPagesData();
+      const isLandscape = styleConfig.orientation === 'landscape';
+
+      // 構建所有頁面的 DOM
+      printArea.innerHTML = pages.map((pageCards, pageIdx) => `
+        <div class="print-sheet ${isLandscape ? 'print-sheet-landscape' : ''} ${pageIdx < pages.length - 1 ? 'page-break' : ''}">
+          <div class="w-full h-full grid ${getGridClassForPrint()} gap-4">
+            ${pageCards.map(card => generateCardHTML(card)).join('')}
+          </div>
+        </div>
+      `).join('');
+
+      lucide.createIcons();
+
+      // 觸發系統列印
+      setTimeout(() => {
+        window.print();
+      }, 200);
+    }
+
+    function getGridClassForPrint() {
+      const cpp = styleConfig.cardsPerPage;
+      const isLandscape = styleConfig.orientation === 'landscape';
+      if (cpp === 1) return 'grid-cols-1 grid-rows-1';
+      if (cpp === 2) return isLandscape ? 'grid-cols-2 grid-rows-1' : 'grid-cols-1 grid-rows-2';
+      return 'grid-cols-2 grid-rows-2';
+    }
+
+    // 下載 PNG 圖片 (單頁)
+    function downloadPNG() {
+      const paper = document.getElementById('paper-container');
+      showToast('正在產生高解析度圖檔中...');
+
+      html2canvas(paper, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: null
+      }).then(canvas => {
+        const link = document.createElement('a');
+        link.download = `桌卡_第${currentPreviewPage}頁.png`;
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+        showToast('圖檔下載完成！');
+      }).catch(err => {
+        console.error(err);
+        showToast('圖片匯出失敗，請稍後再試', 'error');
+      });
+    }
+
+    // Toast 訊息通知
+    function showToast(message, type = 'success') {
+      const container = document.getElementById('toast-container');
+      const toast = document.createElement('div');
+      toast.className = `p-3 px-4 rounded-lg text-xs font-medium text-white shadow-lg transition-all transform translate-y-2 opacity-0 flex items-center gap-2 pointer-events-auto ${type === 'error' ? 'bg-rose-600' : 'bg-slate-800'}`;
+      toast.innerHTML = `
+        <i data-lucide="${type === 'error' ? 'alert-circle' : 'check-circle'}" class="w-4 h-4"></i>
+        <span>${escapeHtml(message)}</span>
+      `;
+      container.appendChild(toast);
+      lucide.createIcons();
+
+      setTimeout(() => {
+        toast.classList.remove('translate-y-2', 'opacity-0');
+      }, 10);
+
+      setTimeout(() => {
+        toast.classList.add('opacity-0', 'translate-y-2');
+        setTimeout(() => toast.remove(), 300);
+      }, 3000);
+    }
+
+    // HTML 轉義字元安全處理
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+  </script>
+</body>
+</html>
+```
